@@ -1,11 +1,7 @@
 import numpy as np
 
-mask = np.identity(5,int)
+a = np.ones((3,3,3))
 
-print(mask)
 
-tmp = mask[0]
-mask[0] = mask[4]
-mask[4] = tmp
-
-print(mask) 
+a[1,2,:] = 0
+print(a)

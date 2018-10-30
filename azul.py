@@ -282,8 +282,8 @@ class Azul(object):
             floor_s = player.floor.state()
 
             print('Player {} score: {}'.format(player.num, player.score))
-            for i, buffer_s in enumerate(buffer_s):
-                print('Buffer{}:R{},B{},W{},Y{},I{}'.format(i+1,*buffer_s.astype(int)))
+            for i, row_s in enumerate(buffer_s):
+                print('Buffer{}:R{},B{},W{},Y{},I{}'.format(i+1,*row_s.astype(int)))
             print('Board:\n',board_s)
             print('Floor:R{},B{},W{},Y{},I{},T{}'.format(*floor_s.astype(int)))
 
@@ -296,7 +296,73 @@ class Azul(object):
         print('Pool:R{},B{},W{},Y{},I{},T{}'.format(*pool_s.astype(int)))
 
     def _states(self):
-        pass
+        bag_s = self._bag.state()
+        grave_s = self._grave.state()
+        tray_s = []
+        pool_s = self._pool.state()
+        for tray in self._trays:
+            tray_s.append(tray.state())
+
+        player = self._active_player
+        buffer_s = player.buffer.state().flatten()
+        board_s = player.board.state().flatten()
+        floor_s = player.floor.state()
+
+        player = self._players[self._active_player.num%2]
+        buffer2_s = player.buffer.state().flatten()
+        board2_s = player.board.state().flatten()
+        floor2_s = player.floor.state()
+        
+
+        full_state = np.concatenate([bag_s, grave_s, *tray_s, pool_s, buffer_s, board_s, floor_s, buffer2_s, \
+            board2_s, floor2_s])
+        print(full_state)
+
+    def _mask(self, player):
+        color_dict = {0:'R',1:'B',2:'W',3:'Y',4:'I',5:'T'}
+        dict_color = {'R':2,'B':0,'W':4,'Y':1,'I':3}
+
+        mask = np.ones((6,5,6))
+
+        # -2
+        valid = []
+        for i,tray in enumerate(self._trays):
+            if tray.is_empty:
+                mask[i,:,:] = 0
+            else:
+                valid.append((tray,i))
+        if self._pool.is_empty:
+            mask[5,:,:] = 0
+        else:
+            valid.append((self._pool,5))
+
+        # -3
+        for source, index in valid:
+            for i in range(5):
+
+                taken = []
+                left = []
+                for tile in source._tiles:
+                    if tile.color == color_dict[i]:
+                        taken.append(tile)
+                    else:
+                        left.append(tile)
+                if len(taken) == 0:
+                    mask[index,i,:] = 0
+
+        # -4 -5
+        for color_index in range(5):
+            for target_index in range(5):
+                target = player.buffer.rows[target_index]
+                # -4
+                if (not target.is_empty) and target._tiles[0].color != color_dict[color_index]:
+                    mask[:,color_index,target_index] = 0
+                # -5
+                elif target.is_empty and player.board.im[target_index,(dict_color[color_dict[color_index]]+target_index)%5] != 0:
+                    mask[:,color_index,target_index] = 0
+
+
+
 
     def take(self, command, player):
         color_dict = {'R':2,'B':0,'W':4,'Y':1,'I':3}
@@ -423,9 +489,12 @@ class Azul(object):
 
         
 if __name__ == '__main__':
-            # game = Azul(2)
+            game = Azul(2)
             
-            # game.start()
+            game.start()
+            game.turn_2p()
+            game.display()
+            game._states()
 
             # while True:
             #     game.turn_2p()
@@ -435,10 +504,8 @@ if __name__ == '__main__':
             #     game.start_turn()
 
 
-            with open('azul-debug.pkl','rb') as f:
-                game  = pickle.load(f)
-            game.display()
-            print(game.is_terminal)
-            game.final_score()
-            game.display()
+            # with open('azul-debug.pkl','rb') as f:
+            #     game  = pickle.load(f)
+            # game._states()
+            # game.display()
             
