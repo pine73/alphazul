@@ -82,11 +82,12 @@ class _Bag(_TileManager):
     def shuffle(self):
         random.shuffle(self._tiles)
 
-    def fill_tray(self, trays, grave):
+    def fill_tray(self, trays, grave, verbose=False):
         for tray in trays:
             if len(self._tiles) < 4:
                 if grave.is_empty:
-                    print('out of tiles')
+                    if verbose:
+                        print('out of tiles')
                     tray.receive(self._tiles[:4])
                     self._tiles = self._tiles[4:]
                     break
@@ -95,12 +96,14 @@ class _Bag(_TileManager):
                     grave.clean()
                     self.shuffle()
                     if len(self._tiles) < 4:
-                        print('recycled and out of tiles')
+                        if verbose:
+                            print('recycled and out of tiles')
                         tray.receive(self._tiles[:4])
                         self._tiles = self._tiles[4:]
                         break
                     else:
-                        print('recycled')
+                        if verbose:
+                            print('recycled')
                         tray.receive(self._tiles[:4])
                         self._tiles = self._tiles[4:]
             else:
@@ -295,7 +298,7 @@ class Azul(object):
             print('Tray{}:R{},B{},W{},Y{},I{}'.format(i+1,*tray_s.astype(int)))
         print('Pool:R{},B{},W{},Y{},I{},T{}'.format(*pool_s.astype(int)))
 
-    def _states(self):
+    def states(self):
         bag_s = self._bag.state()
         grave_s = self._grave.state()
         tray_s = []
@@ -316,9 +319,9 @@ class Azul(object):
 
         full_state = np.concatenate([bag_s, grave_s, *tray_s, pool_s, buffer_s, board_s, floor_s, buffer2_s, \
             board2_s, floor2_s])
-        print(full_state)
+        return full_state
 
-    def _mask(self, player):
+    def mask(self, player):
         color_dict = {0:'R',1:'B',2:'W',3:'Y',4:'I',5:'T'}
         dict_color = {'R':2,'B':0,'W':4,'Y':1,'I':3}
 
@@ -355,12 +358,13 @@ class Azul(object):
             for target_index in range(5):
                 target = player.buffer.rows[target_index]
                 # -4
-                if (not target.is_empty) and target._tiles[0].color != color_dict[color_index]:
+                if (not target.is_empty) and (target._tiles[0].color != color_dict[color_index]):
                     mask[:,color_index,target_index] = 0
                 # -5
                 elif target.is_empty and player.board.im[target_index,(dict_color[color_dict[color_index]]+target_index)%5] != 0:
                     mask[:,color_index,target_index] = 0
 
+        return mask
 
 
 
@@ -426,11 +430,42 @@ class Azul(object):
         for tray in self._trays:
             all_empty = all_empty and tray.is_empty
         return all_empty
+
+
+    # index command
+    def take_command(self, command):
+        color_dict = {0:'R',1:'B',2:'W',3:'Y',4:'I',5:'T'}
+        source_index, color_index, target_index = command
+        color = color_dict[color_index]
+        source = source_index+1 if source_index !=5 else 'P'
+        target = target_index+1 if target_index !=5 else 'F'
+        command_string = '{}{}{}'.format(source, color, target)
+
+        self.take(command_string, self._active_player)
+
+        # print('Move:{}\n-----------------------------------------\n'.format(command_string))
+
+        self._active_player = self._players[self._active_player.num%self._num_player]
+        all_empty = self._pool.is_empty
+        for tray in self._trays:
+            all_empty = all_empty and tray.is_empty
+        return all_empty
+
     
     def turn_2p(self):
         self.display()
         while self.take_stdin() == False: self.display()
         self.turn_end()
+
+    def turn_2ai(self, policy):
+        # self.display()
+        while True:
+            command = policy(self)
+            if self.take_command(command) == True: break
+            # self.display()
+        self.turn_end(verbose = False)
+    
+
 
     ############### debug
     def _save(self):
@@ -438,7 +473,7 @@ class Azul(object):
             pickle.dump(self, f)
     ##############
 
-    def turn_end(self):
+    def turn_end(self, verbose = True):
         color_dict = {'R':2,'B':0,'W':4,'Y':1,'I':3}
         for player in self._players:
             for row in player.buffer.rows:
@@ -457,7 +492,8 @@ class Azul(object):
                 player.floor.has_token = False
                 self._pool.reset()
                 self._active_player = player
-        print('turn end')
+        if verbose:
+            print('turn end')
 
     def start_turn(self):
         self._bag.fill_tray(self._trays, self._grave)
@@ -471,7 +507,7 @@ class Azul(object):
                 return True
         return False
 
-    def final_score(self):
+    def final_score(self,verbose=True):
 
         for player in self._players:
             row = np.sum(player.board.im, axis = 1)
@@ -486,15 +522,18 @@ class Azul(object):
                     player.score += 7
                 if k == 5:
                     player.score += 10
-
+            if verbose:
+                print(player.score)
+        if verbose:
+            print('game over')
         
 if __name__ == '__main__':
             game = Azul(2)
             
             game.start()
-            game.turn_2p()
             game.display()
-            game._states()
+            
+
 
             # while True:
             #     game.turn_2p()
