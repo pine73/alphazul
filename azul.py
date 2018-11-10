@@ -83,6 +83,7 @@ class _Bag(_TileManager):
         random.shuffle(self._tiles)
 
     def fill_tray(self, trays, grave, verbose=False):
+        self.shuffle()
         for tray in trays:
             if len(self._tiles) < 4:
                 if grave.is_empty:
@@ -239,7 +240,7 @@ class _Player(object):
         self.board = _Board()
         self.floor = _Floor()
         self.score = 0
-        self.num = _Player.num_player
+        self.num = (_Player.num_player + 1) % 2 + 1
         _Player.num_player += 1
         
 
@@ -264,6 +265,23 @@ class Azul(object):
 
         for i in range(num_player):
             self._players.append(_Player())
+
+    @property
+    def active_player_num(self):
+        return self._active_player.num
+
+    @property
+    def leading_player_num(self):
+        max_score = 0
+        num = None
+        for player in self._players:
+            if player.score >= max_score:
+                num = player.num
+                max_score = player.score
+        return num
+    
+    
+
 
     def start(self):
         self._bag.fill_tray(self._trays, self._grave)
@@ -321,9 +339,11 @@ class Azul(object):
             board2_s, floor2_s])
         return full_state
 
-    def mask(self, player):
+    def mask(self):
         color_dict = {0:'R',1:'B',2:'W',3:'Y',4:'I',5:'T'}
         dict_color = {'R':2,'B':0,'W':4,'Y':1,'I':3}
+
+        player = self._active_player
 
         mask = np.ones((6,5,6))
 
@@ -365,6 +385,10 @@ class Azul(object):
                     mask[:,color_index,target_index] = 0
 
         return mask
+
+    def flat_mask(self):
+        mask = self.mask()
+        return mask.flatten()
 
 
 
@@ -432,7 +456,7 @@ class Azul(object):
         return all_empty
 
 
-    # index command
+    # index command eg. (1,2,3)
     def take_command(self, command):
         color_dict = {0:'R',1:'B',2:'W',3:'Y',4:'I',5:'T'}
         source_index, color_index, target_index = command
@@ -465,6 +489,20 @@ class Azul(object):
             # self.display()
         self.turn_end(verbose = False)
     
+    def aivs(self,policy1,policy2):
+        self.start()
+        while True:
+            while True:
+                if self._active_player.num == 1:
+                    command = policy1(self)
+                else:
+                    command = policy2(self)
+                if self.take_command(command) == True: break
+            self.turn_end(verbose = False)
+            if self.is_terminal:break
+            self.start_turn()
+        self.final_score(False)
+        return self.leading_player_num
 
 
     ############### debug
@@ -507,7 +545,7 @@ class Azul(object):
                 return True
         return False
 
-    def final_score(self,verbose=True):
+    def final_score(self,verbose=False):
 
         for player in self._players:
             row = np.sum(player.board.im, axis = 1)
@@ -535,12 +573,11 @@ if __name__ == '__main__':
             
 
 
-            # while True:
-            #     game.turn_2p()
-            #     game._save()
-            #     if game.is_terminal:
-            #         break
-            #     game.start_turn()
+            while True:
+                game.turn_2p()
+                if game.is_terminal:
+                    break
+                game.start_turn()
 
 
             # with open('azul-debug.pkl','rb') as f:
