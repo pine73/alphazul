@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 from copy import deepcopy
 
-CPUCT = 2.0
+CPUCT = 10.0
 
 
 
@@ -20,7 +20,7 @@ class _MCTNode(object):
 
         # na length vectors
         self.prior = np.squeeze(prior)
-        mask = ((self.prior > 0).astype(int) - 1) *  1e8
+        mask = ((self.prior > 0).astype(int) - 1) *  1e12
         self.child_Ws = np.zeros(self.prior.shape) + mask
         self.child_Qs = np.zeros(self.prior.shape) + mask
         self.child_Ns = np.zeros(self.prior.shape,dtype=int)
@@ -38,6 +38,8 @@ class MCTSearch(object):
     def __init__(self, game, inference_fuction, commands):
         root_game = deepcopy(game)
         self._infnet = inference_fuction
+        self._dummy = azul.Azul(2)
+        self._dummy.start()
 
         root_value, root_prior = self._infnet(root_game)
         self._root = _MCTNode(root_game,root_prior,False)
@@ -67,6 +69,8 @@ class MCTSearch(object):
             #evaluate
             game_prime.turn_end(verbose = False)
             if game_prime.is_terminal:
+                self._infnet(self._dummy)
+                game_prime.final_score()
                 return 1.,game_prime.leading_player_num
             game_prime.start_turn()
             value, prior = self._infnet(game_prime)
@@ -86,6 +90,8 @@ class MCTSearch(object):
             #evaluate
             game_prime.turn_end(verbose = False)
             if game_prime.is_terminal:
+                self._infnet(self._dummy)
+                game_prime.final_score()
                 return 1.,game_prime.leading_player_num
             game_prime.start_turn()
             value, prior = self._infnet(game_prime)
@@ -113,7 +119,8 @@ class MCTSearch(object):
         if not node.is_turn_end:
             node.child_Ws[action_index] += v
             node.child_Ns[action_index] += 1
-            node.child_Qs = node.child_Ws / (node.child_Ns + 1e-10)
+            # node.child_Qs = node.child_Ws / (node.child_Ns + 1e-10)
+            node.child_Qs[action_index] = node.child_Ws[action_index] / (node.child_Ns[action_index] + 1e-10)
 
 
         if node.parent is not None:
@@ -134,10 +141,27 @@ class MCTSearch(object):
             self.search()
         action_index = np.argmax(self._root.child_Ns)
         action_command = _MCTNode.commands[action_index]
+        ##############
+        # if action_index == 0:
+        #     print(self._root.child_Ns[0])
+        #     if self._root.child_Ns[0] <= 100:
+        #         print('000')
+        #         print(self._root.child_Ws,self._root.child_Qs,self._root.child_Ns,self._root.prior)
+        #         self._root.game.display()
+        #         print(np.sum(self._root.child_Ns))
+        #         Us = CPUCT * self._root.prior * np.sqrt(self._root.visit_count) / (1 + self._root.child_Ns)
+        #         print(Us)
+        #         self._root.game._save()
+        #         exit()
+        ##############
         return action_command, (self._root.game.states(), action_index, self._root.game.active_player_num)
 
-    def change_root(self,node):
-        self._root = node
-
+    def change_root(self):
+        if self._root.is_turn_end:
+            raise Exception('root is turn end')
+        else:
+            action_index = np.argmax(self._root.child_Ns)
+            self._root = self._root.child[action_index]
+            
         
 

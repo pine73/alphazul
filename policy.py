@@ -4,6 +4,7 @@ import time
 import mcts
 from copy import deepcopy
 from multiprocessing import Pool
+import alphazul
 
 def random_policy(game):
     mask = game.mask()
@@ -28,6 +29,7 @@ def slightly_less_random_policy(game):
         command = valid_commands[random_index]
         return command
 
+# inf func
 def rollout(gamein):
     game = deepcopy(gamein)
     player = game.active_player_num
@@ -51,6 +53,7 @@ def rollout(gamein):
     else:
         return -1.,prior
 
+# policy
 def mcts_roolout(game):
     commands = np.argwhere(np.ones((6,5,6))==1)
     search = mcts.MCTSearch(game,rollout,commands)
@@ -59,25 +62,44 @@ def mcts_roolout(game):
 
 
 
+
+class MCTSNNHelper(object):
+    def __init__(self, state_size = alphazul.STATES_SIZE, mask_size = alphazul.MASK_SIZE):
+        self._infhelper = alphazul.InfHelperS()
+
+    def __call__(self,game):
+        commands = np.argwhere(np.ones((6,5,6))==1)
+        search = mcts.MCTSearch(game,self._infhelper,commands)
+        action,_ = search.start_search(100)
+        return action
+
+
+        
+
+
 def poolvs(game,policy1,policy2):
     return game.aivs(policy1,policy2)
 
 
 if __name__ == '__main__':
     a = time.time()
-    games = [[azul.Azul(2),slightly_less_random_policy,mcts_roolout] for _ in range(8)]
 
-    pool = Pool(8)
+    # 1
+    # games = [[azul.Azul(2),mcts_roolout,random_policy] for _ in range(8)]
+    # pool = Pool(8)
+    # results = pool.starmap(poolvs,games)
 
-    results = pool.starmap(poolvs,games)
-
-    
+    #2
     # while True:
     #     game.turn_2ai(mcts_roolout)
     #     if game.is_terminal:break
     #     game.start_turn()
     # game.final_score(True)
 
+    # 3
+    game = azul.Azul(2)
+    mctsnn = MCTSNNHelper()
+    results = game.aivs(random_policy,mctsnn)
 
 
     print(results)

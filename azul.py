@@ -279,6 +279,11 @@ class Azul(object):
                 num = player.num
                 max_score = player.score
         return num
+
+    @property
+    def turn(self):
+        return self._turn
+    
     
     
 
@@ -473,6 +478,7 @@ class Azul(object):
         all_empty = self._pool.is_empty
         for tray in self._trays:
             all_empty = all_empty and tray.is_empty
+        # return is turn end
         return all_empty
 
     
