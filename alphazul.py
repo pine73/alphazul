@@ -4,6 +4,7 @@ import mcts
 from multiprocessing import Process,Pipe,Queue
 import azul
 import time
+import random
 
 
 DTYPE = tf.float32
@@ -11,10 +12,10 @@ DTYPE = tf.float32
 NUM_HIDDEN = 384
 NUM_LAYER = 4
 
-STATES_SIZE = 153
+STATES_SIZE = 155
 MASK_SIZE = 180
 REGULARIZATION_FACTOR = 1e-4
-LEARNING_RATE = 1e-2
+LEARNING_RATE = 1e-3
 BATCH_SIZE = 32
 EPOCH = 10
 
@@ -55,11 +56,10 @@ class InferenceNetwork(object):
                 self._prediction_distribution = tf.nn.softmax(masked_logits)
 
             with tf.name_scope('losses'):
-                self._policy_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self._label_distribution, logits = logits))
+                self._policy_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self._label_distribution, logits = masked_logits))
                 self._value_loss = tf.losses.mean_squared_error(labels=self._label_value, predictions=self._prediction_value)
                 self._reg_loss = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * REGULARIZATION_FACTOR
-                ####################
-                # self._policy_loss = self._policy_loss / 4.
+
                 self._loss = self._policy_loss + self._value_loss + self._reg_loss
 
 
@@ -95,11 +95,12 @@ class InferenceNetwork(object):
         return value_p, distribution_p
 
 
-    def train(self,states,acitons,values):
+    def train(self,states,acitons,values,masks):
         feed_dict = {
             self._input_states:states,
             self._label_value:values,
-            self._label_distribution:acitons
+            self._label_distribution:acitons,
+            self._mask:masks
         }
         policy_loss,value_loss,reg_loss,loss,_ = self._sess.run([self._policy_loss,self._value_loss,self._reg_loss,self._loss,self._train_op],feed_dict=feed_dict)
         print('\n')
@@ -153,38 +154,43 @@ def worker_routine(game, w2s_conn, public_q):
     accumulated_data = []
     winner = None
     while True:
-        action_command, training_data = search.start_search(100)
+        action_command, training_data = search.start_search(300)
         accumulated_data.append(training_data)
         is_turn_end = game.take_command(action_command)
         if is_turn_end:
             game.turn_end(verbose = False)
             if game.is_terminal:
-                game.final_score()
+                game.final_score(verbose=True)
                 w2s_conn.send([True]*3)
                 winner = game.leading_player_num
+                print('end in', game.turn)
                 break
             else:
                 game.start_turn()
-                if game.turn >= 9:
+                if game.turn >= 11:
                     w2s_conn.send([True]*3)
                     game.final_score()
                     winner = game.leading_player_num
-                    print('exceeding turn 8')
+                    print('exceeding turn 10')
                     break
                 search = mcts.MCTSearch(game, inf_helper, commands)
         else:
+            ##########################
             search.change_root()
+            # search = mcts.MCTSearch(game, inf_helper, commands)
+            #########################
 
-    state_data,action_data,value_data = [],[],[]
-    for state, action_index, player in accumulated_data:
+    state_data,action_data,value_data,mask_data = [],[],[],[]
+    for state, action_index, player,mask in accumulated_data:
         state_data.append(state)
         action_data.append(action_index)
+        mask_data.append(mask)
         if player == winner:
             value_data.append(1.)
         else:
             value_data.append(-1.)
 
-    public_q.put((state_data,action_data,value_data))
+    public_q.put((state_data,action_data,value_data,mask_data))
 
 
 def server_routine(s2w_conns, num_processes=8):
@@ -243,23 +249,46 @@ def self_play():
         p.start()
         
 
-    state_data_all,action_data_all,value_data_all = [],[],[]
+
+
+    min_length = 999 
+    all_data = []
     for i in range(8):
-        state_data,action_data,value_data = public_q.get()
-        state_data_all.extend(state_data)
-        action_data_all.extend(action_data)
-        value_data_all.extend(value_data)
+        state_data,action_data,value_data,mask_data = public_q.get()
+        if len(state_data) <= min_length:
+            min_length = len(state_data)
+        all_data.append((state_data,action_data,value_data,mask_data))
+
+
+
+
+    state_data_all,action_data_all,value_data_all,mask_data_all = [],[],[],[]
+
+    for state_data,action_data,value_data,mask_data in all_data:
+        data_zip = list(zip(state_data,action_data,value_data,mask_data))
+        random.shuffle(data_zip)
+        state_data,action_data,value_data,mask_data = list(zip(*data_zip))
+
+        state_data_all.extend(state_data[:min_length])
+        action_data_all.extend(action_data[:min_length])
+        value_data_all.extend(value_data[:min_length])
+        mask_data_all.extend(mask_data[:min_length])
+
+
 
     state_data_all = np.stack(state_data_all)
     action_data_all = np.stack(action_data_all)
     value_data_all = np.stack(value_data_all).reshape((-1,1))
+    mask_data_all = np.stack(mask_data_all)
 
-    assert len(state_data_all) == len(action_data_all) and len(state_data_all) == len(value_data_all)
+    assert len(state_data_all) == len(action_data_all) and len(state_data_all) == len(value_data_all) and len(state_data_all) == len(mask_data_all)
 
     permutated_index = np.random.permutation(len(state_data_all))
     permutated_state = state_data_all[permutated_index]
     permutated_action = action_data_all[permutated_index]
     permutated_value = value_data_all[permutated_index]
+    permutated_mask = mask_data_all[permutated_index]
+
 
     for p in processes:
         p.join()
@@ -269,7 +298,8 @@ def self_play():
     infnet = InferenceNetwork(STATES_SIZE, MASK_SIZE)
     for i in range(num_iter):
         infnet.train(permutated_state[i*BATCH_SIZE:(i+1)*BATCH_SIZE],
-            permutated_action[i*BATCH_SIZE:(i+1)*BATCH_SIZE],permutated_value[i*BATCH_SIZE:(i+1)*BATCH_SIZE])
+            permutated_action[i*BATCH_SIZE:(i+1)*BATCH_SIZE],permutated_value[i*BATCH_SIZE:(i+1)*BATCH_SIZE],
+            permutated_mask[i*BATCH_SIZE:(i+1)*BATCH_SIZE])
         print(i)
     infnet.close()
 
@@ -282,10 +312,12 @@ def debug():
 
     search = mcts.MCTSearch(game, inf_helper, commands)
 
+
+    searches= [search]
     accumulated_data = []
     winner = None
     while True:
-        action_command, training_data = search.start_search(100)
+        action_command, training_data = search.start_search(300)
         accumulated_data.append(training_data)
         is_turn_end = game.take_command(action_command)
         if is_turn_end:
@@ -298,7 +330,9 @@ def debug():
                 game.start_turn()
                 search = mcts.MCTSearch(game, inf_helper, commands)
         else:
-            search.change_root()
+            # search.change_root()
+            search = mcts.MCTSearch(game, inf_helper, commands)
+            searches.append(search)
 
     state_data,action_data,value_data = [],[],[]
     for state, action_index, player in accumulated_data:
@@ -309,13 +343,18 @@ def debug():
             value_data.append(1.)
         else:
             value_data.append(-1.)
-    return state_data,action_data,value_data
+    return state_data,action_data,value_data,searches
 
 
 if __name__ == '__main__':
     self_play()
 
-    # state_data,action_data,value_data = debug()
+    # state_data,action_data,value_data,searches = debug()
 
-    # print(state_data)
+    # print(value_data)
     # print(action_data)
+    # for search in searches:
+    #     print(search._root.visit_count)
+    #     print(search._root.prior.reshape((6,5,6)))
+    #     print(search._root.child_Ws.reshape((6,5,6)),search._root.child_Ns.reshape((6,5,6)))
+    #     print('\n\n')

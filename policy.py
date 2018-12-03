@@ -57,7 +57,7 @@ def rollout(gamein):
 def mcts_roolout(game):
     commands = np.argwhere(np.ones((6,5,6))==1)
     search = mcts.MCTSearch(game,rollout,commands)
-    action,_ = search.start_search(100)
+    action = search.start_search_deterministic(300)
     return action
 
 
@@ -70,7 +70,7 @@ class MCTSNNHelper(object):
     def __call__(self,game):
         commands = np.argwhere(np.ones((6,5,6))==1)
         search = mcts.MCTSearch(game,self._infhelper,commands)
-        action,_ = search.start_search(100)
+        action = search.start_search_deterministic(300)
         return action
 
 
@@ -99,7 +99,7 @@ if __name__ == '__main__':
     # 3
     game = azul.Azul(2)
     mctsnn = MCTSNNHelper()
-    results = game.aivs(random_policy,mctsnn)
+    results = game.aivs(mcts_roolout,mctsnn)
 
 
     print(results)

@@ -9,30 +9,26 @@ class _TileManager(object):
 
     def __init__(self):
         super(_TileManager, self).__init__()
-        self._tiles = []
-        
-    @property
-    def tiles(self):
-        return self._tiles
+        self.tiles = []
 
     @property
     def is_empty(self):
-        if len(self._tiles) == 0:
+        if len(self.tiles) == 0:
             return True
         else:
             return False    
 
     def state(self):
         s = np.zeros([5])
-        for tile in self._tiles:
+        for tile in self.tiles:
             s[tile.number//20] += 1
         return s
 
     def receive(self, tiles):
-        self._tiles.extend(tiles)
+        self.tiles.extend(tiles)
 
     def clean(self):
-        self._tiles = []
+        self.tiles = []
 
 
 
@@ -64,7 +60,7 @@ class _Pool(_TileManager):
 
     def state(self):
         s = np.zeros([6])
-        for tile in self._tiles:
+        for tile in self.tiles:
             s[tile.number//20] += 1
         if self.has_token:
             s[5] += 1
@@ -76,40 +72,40 @@ class _Bag(_TileManager):
     def __init__(self):
         super(_Bag, self).__init__()
         for i in range(100):
-            self._tiles.append(_Tile(i))
+            self.tiles.append(_Tile(i))
         self.shuffle()
 
     def shuffle(self):
-        random.shuffle(self._tiles)
+        random.shuffle(self.tiles)
 
     def fill_tray(self, trays, grave, verbose=False):
         self.shuffle()
         for tray in trays:
-            if len(self._tiles) < 4:
+            if len(self.tiles) < 4:
                 if grave.is_empty:
                     if verbose:
                         print('out of tiles')
-                    tray.receive(self._tiles[:4])
-                    self._tiles = self._tiles[4:]
+                    tray.receive(self.tiles[:4])
+                    self.tiles = self.tiles[4:]
                     break
                 else:
-                    self.receive(grave._tiles)
+                    self.receive(grave.tiles)
                     grave.clean()
                     self.shuffle()
-                    if len(self._tiles) < 4:
+                    if len(self.tiles) < 4:
                         if verbose:
                             print('recycled and out of tiles')
-                        tray.receive(self._tiles[:4])
-                        self._tiles = self._tiles[4:]
+                        tray.receive(self.tiles[:4])
+                        self.tiles = self.tiles[4:]
                         break
                     else:
                         if verbose:
                             print('recycled')
-                        tray.receive(self._tiles[:4])
-                        self._tiles = self._tiles[4:]
+                        tray.receive(self.tiles[:4])
+                        self.tiles = self.tiles[4:]
             else:
-                tray.receive(self._tiles[:4])
-                self._tiles = self._tiles[4:]
+                tray.receive(self.tiles[:4])
+                self.tiles = self.tiles[4:]
         return trays
 
 class _Grave(_TileManager):
@@ -142,14 +138,14 @@ class _Row(_TileManager):
         self._cap = cap
 
     def receive(self, tiles, floor):
-        self._tiles.extend(tiles)
-        if len(self._tiles) > self._cap:
-            floor.receive(self._tiles[self._cap:])
-            self._tiles = self._tiles[:self._cap]
+        self.tiles.extend(tiles)
+        if len(self.tiles) > self._cap:
+            floor.receive(self.tiles[self._cap:])
+            self.tiles = self.tiles[:self._cap]
 
     @property
     def is_full(self):
-        if len(self._tiles) == self._cap:
+        if len(self.tiles) == self._cap:
             return True
         else:
             return False
@@ -209,7 +205,7 @@ class _Floor(_TileManager):
 
     def score(self):
         s = 0
-        num = len(self._tiles)
+        num = len(self.tiles)
         if self.has_token:
             num += 1 
         for i in range(num):
@@ -223,7 +219,7 @@ class _Floor(_TileManager):
     
     def state(self):
         s = np.zeros([6])
-        for tile in self._tiles:
+        for tile in self.tiles:
             s[tile.number//20] += 1
         if self.has_token:
             s[5] += 1
@@ -341,7 +337,7 @@ class Azul(object):
         
 
         full_state = np.concatenate([bag_s, grave_s, *tray_s, pool_s, buffer_s, board_s, floor_s, buffer2_s, \
-            board2_s, floor2_s])
+            board2_s, floor2_s, [self._turn], [self.active_player_num]])
         return full_state
 
     def mask(self):
@@ -370,7 +366,7 @@ class Azul(object):
 
                 taken = []
                 left = []
-                for tile in source._tiles:
+                for tile in source.tiles:
                     if tile.color == color_dict[i]:
                         taken.append(tile)
                     else:
@@ -383,7 +379,7 @@ class Azul(object):
             for target_index in range(5):
                 target = player.buffer.rows[target_index]
                 # -4
-                if (not target.is_empty) and (target._tiles[0].color != color_dict[color_index]):
+                if (not target.is_empty) and (target.tiles[0].color != color_dict[color_index]):
                     mask[:,color_index,target_index] = 0
                 # -5
                 elif target.is_empty and player.board.im[target_index,(dict_color[color_dict[color_index]]+target_index)%5] != 0:
@@ -416,7 +412,7 @@ class Azul(object):
 
         taken = []
         left = []
-        for tile in source._tiles:
+        for tile in source.tiles:
             if tile.color == command[1]:
                 taken.append(tile)
             else:
@@ -429,7 +425,7 @@ class Azul(object):
             target = player.floor
         else:
             target = player.buffer.rows[int(command[2])-1]
-            if (not target.is_empty) and target._tiles[0].color != command[1]:
+            if (not target.is_empty) and target.tiles[0].color != command[1]:
                 print('color does not agree with target buffer')
                 return -4
             elif target.is_empty and player.board.im[int(command[2])-1,(color_dict[command[1]]+int(command[2])-1)%5] != 0:
@@ -507,7 +503,7 @@ class Azul(object):
             self.turn_end(verbose = False)
             if self.is_terminal:break
             self.start_turn()
-        self.final_score(False)
+        self.final_score(True)
         return self.leading_player_num
 
 
@@ -522,13 +518,13 @@ class Azul(object):
         for player in self._players:
             for row in player.buffer.rows:
                 if row.is_full:
-                    indexes = (row._cap-1, (color_dict[row._tiles[0].color]+row._cap-1)%5)
-                    player.board.receive([row._tiles[0]])
-                    self._grave.receive(row._tiles[1:])
+                    indexes = (row._cap-1, (color_dict[row.tiles[0].color]+row._cap-1)%5)
+                    player.board.receive([row.tiles[0]])
+                    self._grave.receive(row.tiles[1:])
                     row.clean()
                     player.score += player.board.score(indexes)
             player.score += player.floor.score()
-            self._grave.receive(player.floor._tiles)
+            self._grave.receive(player.floor.tiles)
             player.floor.clean()
             if player.score < 0 :
                 player.score = 0
@@ -557,7 +553,7 @@ class Azul(object):
             row = np.sum(player.board.im, axis = 1)
             column = np.sum(player.board.im, axis = 0)
             color = np.zeros((5),int)
-            for tile in player.board._tiles:
+            for tile in player.board.tiles:
                 color[tile.number//20] += 1
             for i,j,k in zip(row,column,color):
                 if i == 5:

@@ -3,7 +3,9 @@ import numpy as np
 import tensorflow as tf
 from copy import deepcopy
 
-CPUCT = 10.0
+CPUCT = 2.0
+EPISLON = None
+TAU = None
 
 
 
@@ -45,6 +47,8 @@ class MCTSearch(object):
         self._root = _MCTNode(root_game,root_prior,False)
         _MCTNode.commands = commands
 
+        self._choice = None
+
     def select(self, node):
         #terminal node
         if node.is_turn_end:
@@ -52,7 +56,17 @@ class MCTSearch(object):
 
         #normal node
         node.visit_count += 1
+        ################
+        # mask = (node.prior > 0).astype(int)
+        # masked_prior = np.maximum(node.prior,EPISLON) * mask
+        # Us = CPUCT * masked_prior * np.sqrt(node.visit_count) / (1 + node.child_Ns)
+
         Us = CPUCT * node.prior * np.sqrt(node.visit_count) / (1 + node.child_Ns)
+
+        # Us = np.max(np.abs(node.child_Qs)) * CPUCT * node.prior * np.sqrt(node.visit_count) / (1 + node.child_Ns)
+
+
+        ################
         action_index = np.argmax(node.child_Qs + Us)
 
 
@@ -139,8 +153,21 @@ class MCTSearch(object):
     def start_search(self,num_search):
         for i in range(num_search):
             self.search()
-        action_index = np.argmax(self._root.child_Ns)
+
+        
+        #################
+        root_child_count = self._root.child_Ns
+        # root_child_count = np.power(root_child_count,TAU)
+
+        discrete_value = np.arange(len(root_child_count))
+        discrete_prob = root_child_count/np.sum(root_child_count)
+        action_index = np.random.choice(discrete_value,p = discrete_prob)
+        self._choice = action_index
+
+        # action_index = np.argmax(self._root.child_Ns)
         action_command = _MCTNode.commands[action_index]
+        #################
+
         ##############
         # if action_index == 0:
         #     print(self._root.child_Ns[0])
@@ -154,14 +181,25 @@ class MCTSearch(object):
         #         self._root.game._save()
         #         exit()
         ##############
-        return action_command, (self._root.game.states(), action_index, self._root.game.active_player_num)
+        return action_command, (self._root.game.states(), action_index, self._root.game.active_player_num, self._root.game.flat_mask())
+
+    def start_search_deterministic(self,num_search):
+        for i in range(num_search):
+            self.search()
+
+        action_index = np.argmax(self._root.child_Ns)
+        action_command = _MCTNode.commands[action_index]
+
+        return action_command
 
     def change_root(self):
         if self._root.is_turn_end:
             raise Exception('root is turn end')
         else:
-            action_index = np.argmax(self._root.child_Ns)
+            assert self._choice is not None
+            action_index = self._choice
             self._root = self._root.child[action_index]
+            self._root.parent = None
             
         
 
